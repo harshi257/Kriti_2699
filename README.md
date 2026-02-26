@@ -34,7 +34,7 @@ sse-renewables-platform/
 
 ### Backend (run in Google Colab)
 
-1. Open `FinalBDHPipeline_WithAPI.ipynb` in Google Colab
+1. Open `Copy_of_FinalBDHPipeline_WithAPI.ipynb` in Google Colab
 2. Run cells in order: **Cell 1 → Cell 7**
 3. When prompted, enter your `GROQ_API_KEY`
 4. Upload SSE PDF reports when Cell 5 asks

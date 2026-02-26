@@ -1,57 +1,68 @@
 """
-SSE Renewables — BDH Climate Risk API
-======================================
-FastAPI wrapper around ask_analyst() from the BDH pipeline notebook.
+api.py — SSE Renewables BDH Climate Risk API  (Render-ready)
+=============================================================
+Production FastAPI server. Imports all logic from pipeline.py.
 
-HOW TO USE
-----------
-1.  Run ALL notebook cells (1–6) first to build:
-      • bdh_model       — trained BDH model
-      • retriever       — RAG vector store
-      • LIVE_STATE      — populated by the stream loop
-      • all_monthly_records — JSON output from the pipeline
+HOW TO RUN LOCALLY
+------------------
+  export GROQ_API_KEY=your_key_here
+  uvicorn api:app --host 0.0.0.0 --port 8000
 
-2.  Then run this file in the same Python process (or import it from a
-    Colab cell after the pipeline has run):
-
-      # In a Colab cell, after running cells 1-6:
-      import nest_asyncio, uvicorn
-      nest_asyncio.apply()
-      uvicorn.run(app, host="0.0.0.0", port=8000)
-
-    Or from terminal:
-      uvicorn api:app --host 0.0.0.0 --port 8000 --reload
-
-3.  Use ngrok (or similar) to expose the Colab port publicly:
-      !pip install pyngrok
-      from pyngrok import ngrok
-      public_url = ngrok.connect(8000)
-      print("API URL:", public_url)
+HOW TO DEPLOY ON RENDER
+-----------------------
+  1. Push this repo to GitHub.
+  2. Create a new Web Service on Render.
+  3. Build Command : pip install -r requirements.txt
+  4. Start Command : uvicorn api:app --host 0.0.0.0 --port $PORT
+  5. Add env var   : GROQ_API_KEY = <your key>
+  6. (Optional)    : BDH_MODEL_PATH, REPORTS_DIR, CHROMA_DIR, JSON_OUTPUT_PATH
 
 ENDPOINTS
 ---------
 GET  /                          → health check
-GET  /monthly-reports           → download the full 2-year JSON output
-GET  /monthly-reports/{month}   → single month record (e.g. "2023-07")
-GET  /live-state                → current BDH LIVE_STATE snapshot
+GET  /monthly-reports           → full JSON output
+GET  /monthly-reports/{month}   → single month (e.g. 2023-07)
+GET  /live-state                → current LIVE_STATE snapshot
 POST /ask                       → query the LLM analyst
+POST /upload-report             → upload a PDF/CSV to the RAG corpus
 """
 
-# ── Paste this cell AFTER Cell 6 in your notebook ─────────────────────────────
-
-# Install FastAPI if needed (add to Cell 1 pip installs for production):
-# !pip install -q fastapi uvicorn nest_asyncio pyngrok
-
-import json
 import os
-from typing import Optional, Literal
-from fastapi import FastAPI, HTTPException
+import json
+import logging
+from contextlib import asynccontextmanager
+from typing import Literal
+
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-# ── These globals come from the notebook cells above ──────────────────────────
-# ask_analyst, LIVE_STATE, all_monthly_records, JSON_OUTPUT_PATH
-# They are already in scope if this code runs in the same kernel.
+import pipeline as pl
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s — %(message)s")
+logger = logging.getLogger(__name__)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Lifespan — runs once at startup
+# ─────────────────────────────────────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("🚀 Starting up — initialising pipeline...")
+    try:
+        pl.init_pipeline()
+    except Exception as e:
+        logger.error(f"Pipeline init failed: {e}")
+        # Don't crash the server — let health check report the issue
+    yield
+    logger.info("🛑 Shutting down.")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# App
+# ─────────────────────────────────────────────────────────────────────────────
 
 app = FastAPI(
     title="SSE Renewables BDH Climate Risk API",
@@ -60,7 +71,23 @@ app = FastAPI(
         "retrieve monthly reports, and inspect live BDH state."
     ),
     version="1.0.0",
+    lifespan=lifespan,
 )
+
+# CORS — allow your deployed frontend to call this API
+ALLOWED_ORIGINS = os.environ.get(
+    "ALLOWED_ORIGINS",
+    "*"  # tighten this to your frontend URL in production, e.g. "https://myapp.vercel.app"
+).split(",")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Request / Response models
@@ -72,12 +99,14 @@ class AskRequest(BaseModel):
     temperature: float = 0.3
     include_sources: bool = True
 
+
 class AskResponse(BaseModel):
     question: str
     task: str
     answer: str
     sources: list
     live_state_snapshot: dict
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Endpoints
@@ -86,50 +115,41 @@ class AskResponse(BaseModel):
 @app.get("/", tags=["Health"])
 def health_check():
     """Check API is running and return pipeline status."""
-    n_months = len(all_monthly_records) if "all_monthly_records" in globals() else 0
     return {
         "status": "ok",
         "pipeline": "SSE Renewables BDH Climate Risk",
-        "monthly_records_loaded": n_months,
-        "live_state_hour": LIVE_STATE.get("hour", "not started"),
-        "live_state_timestamp": LIVE_STATE.get("timestamp", "not started"),
+        "monthly_records_loaded": len(pl.all_monthly_records),
+        "retriever_ready": pl.retriever is not None,
+        "groq_ready": pl.groq_client is not None,
+        "live_state_hour": pl.LIVE_STATE.get("hour", "not started"),
+        "live_state_timestamp": pl.LIVE_STATE.get("timestamp", "not started"),
     }
 
 
 @app.get("/monthly-reports", tags=["Reports"])
 def get_all_monthly_reports():
-    """
-    Return the full 2-year JSON output (all monthly LLM analyses).
-    If the file exists on disk, serve it directly; otherwise use in-memory records.
-    """
-    json_path = globals().get("JSON_OUTPUT_PATH", "/content/sse_monthly_analysis.json")
-
+    """Return the full 2-year JSON output (all monthly LLM analyses)."""
+    json_path = pl.JSON_OUTPUT_PATH
     if os.path.exists(json_path):
         return FileResponse(
             json_path,
             media_type="application/json",
             filename="sse_monthly_analysis.json",
         )
-
-    records = globals().get("all_monthly_records", [])
-    if not records:
+    if not pl.all_monthly_records:
         raise HTTPException(
             status_code=404,
-            detail="No monthly records found. Run the pipeline (Cell 6) first.",
+            detail="No monthly records found. Run the pipeline first.",
         )
-    return JSONResponse(content=records)
+    return JSONResponse(content=pl.all_monthly_records)
 
 
 @app.get("/monthly-reports/{month}", tags=["Reports"])
 def get_monthly_report(month: str):
-    """
-    Return a single month's record.
-    month format: YYYY-MM  (e.g. 2023-07)
-    """
-    records = globals().get("all_monthly_records", [])
-    match = [r for r in records if r.get("month") == month]
+    """Return a single month's record. month format: YYYY-MM (e.g. 2023-07)"""
+    match = [r for r in pl.all_monthly_records if r.get("month") == month]
     if not match:
-        available = [r["month"] for r in records]
+        available = [r["month"] for r in pl.all_monthly_records]
         raise HTTPException(
             status_code=404,
             detail=f"Month '{month}' not found. Available: {available}",
@@ -139,17 +159,18 @@ def get_monthly_report(month: str):
 
 @app.get("/live-state", tags=["BDH"])
 def get_live_state():
-    """
-    Return the current LIVE_STATE snapshot from the BDH stream.
-    Updated every hour during the pipeline run; reflects the last processed hour.
-    """
-    state = globals().get("LIVE_STATE", {})
-    if not state:
-        raise HTTPException(
-            status_code=503,
-            detail="LIVE_STATE is empty. Run the pipeline (Cell 6) first.",
-        )
-    return JSONResponse(content=state)
+    """Return the current LIVE_STATE snapshot from the BDH stream."""
+    if not pl.LIVE_STATE.get("wind_metrics"):
+        return JSONResponse(content={
+            "status": "empty",
+            "message": (
+                "LIVE_STATE has no wind metrics yet. "
+                "Upload NASA data and run the pipeline, or /ask will still work "
+                "with fallback values."
+            ),
+            "raw": pl.LIVE_STATE,
+        })
+    return JSONResponse(content=pl.LIVE_STATE)
 
 
 @app.post("/ask", response_model=AskResponse, tags=["Analyst"])
@@ -171,95 +192,61 @@ def ask_endpoint(req: AskRequest):
 
     **Example curl:**
     ```bash
-    curl -X POST http://localhost:8000/ask \\
+    curl -X POST https://your-app.onrender.com/ask \\
       -H "Content-Type: application/json" \\
-      -d '{
-        "question": "What are the main wind energy risks for SSE this month?",
-        "task": "risk_analysis",
-        "temperature": 0.3
-      }'
+      -d '{"question": "What are the main wind energy risks this month?", "task": "risk_analysis"}'
     ```
     """
+    if pl.retriever is None or pl.groq_client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Pipeline not ready. Check server logs — GROQ_API_KEY may be missing.",
+        )
     try:
-        answer_fn = globals().get("ask_analyst")
-        if answer_fn is None:
-            raise HTTPException(
-                status_code=503,
-                detail="ask_analyst() not found. Ensure notebook cells 1-6 have been run.",
-            )
-
-        answer, sources = answer_fn(
+        answer, sources = pl.ask_analyst(
             question=req.question,
             task=req.task,
             temperature=req.temperature,
         )
-
         return AskResponse(
             question=req.question,
             task=req.task,
             answer=answer,
             sources=sources if req.include_sources else [],
             live_state_snapshot={
-                "hour": LIVE_STATE.get("hour"),
-                "timestamp": LIVE_STATE.get("timestamp"),
-                "memory_norm": LIVE_STATE.get("memory_norm"),
-                "wind_metrics": LIVE_STATE.get("wind_metrics", {}),
+                "hour":         pl.LIVE_STATE.get("hour"),
+                "timestamp":    pl.LIVE_STATE.get("timestamp"),
+                "memory_norm":  pl.LIVE_STATE.get("memory_norm"),
+                "wind_metrics": pl.LIVE_STATE.get("wind_metrics", {}),
             },
         )
-
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("ask_analyst failed")
         raise HTTPException(status_code=500, detail=f"LLM call failed: {str(e)}")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Colab launcher — paste this into a NEW notebook cell (Cell 8)
-# ─────────────────────────────────────────────────────────────────────────────
+@app.post("/upload-report", tags=["Admin"])
+async def upload_report(file: UploadFile = File(...)):
+    """
+    Upload a PDF or CSV to the RAG corpus and rebuild the vector store.
+    Accepted types: application/pdf, text/csv
+    """
+    allowed = {".pdf", ".csv"}
+    suffix  = os.path.splitext(file.filename)[1].lower()
+    if suffix not in allowed:
+        raise HTTPException(status_code=400, detail=f"File type {suffix} not supported. Use PDF or CSV.")
 
-COLAB_LAUNCH_SNIPPET = '''
-# ╔══════════════════════════════════════════════════════════════╗
-# ║  CELL 8 — Launch the API Server                            ║
-# ║  Run AFTER cells 1–6 have completed.                       ║
-# ╚══════════════════════════════════════════════════════════════╝
+    os.makedirs(pl.REPORTS_DIR, exist_ok=True)
+    dest = os.path.join(pl.REPORTS_DIR, file.filename)
+    with open(dest, "wb") as f:
+        f.write(await file.read())
 
-!pip install -q fastapi uvicorn nest_asyncio pyngrok
-
-import nest_asyncio
-import uvicorn
-import threading
-from pyngrok import ngrok
-
-# Make asyncio work inside Colab
-nest_asyncio.apply()
-
-# ── Import the API app (assuming api.py is in /content/) ──────────────────────
-import sys
-sys.path.insert(0, "/content")
-from api import app   # <-- imports the FastAPI app defined in api.py
-
-# ── Expose locally on port 8000 ───────────────────────────────────────────────
-PORT = 8000
-
-def run_server():
-    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")
-
-server_thread = threading.Thread(target=run_server, daemon=True)
-server_thread.start()
-
-# ── Create a public URL via ngrok ─────────────────────────────────────────────
-public_url = ngrok.connect(PORT)
-print(f"\\n✅ API is live!")
-print(f"   Local  : http://localhost:{PORT}")
-print(f"   Public : {public_url}")
-print(f"\\n📖 Docs available at: {public_url}/docs")
-print(f"\\n📡 Example query:")
-print(f\'\'\'   curl -X POST {public_url}/ask \\\\
-     -H "Content-Type: application/json" \\\\
-     -d \'{{"question": "What are the wind risks this month?", "task": "qa"}}\'\'\')
-'''
-
-if __name__ == "__main__":
-    # Local development — run with: python api.py
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=False)
+    # Rebuild vector store
+    try:
+        vs = pl.build_vectorstore(pl.REPORTS_DIR, pl.CHROMA_DIR, force_rebuild=True)
+        pl.retriever = vs.as_retriever(search_kwargs={"k": pl.RETRIEVAL_TOP_K})
+        return {"status": "ok", "message": f"Uploaded {file.filename} and rebuilt RAG index."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"RAG rebuild failed: {str(e)}")

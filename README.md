@@ -69,6 +69,21 @@ sse-renewables-platform/
 | `POST` | `/ask` | Page 3 — AI Analyst Chat |
 
 ---
+---
+
+## Team Members and Contributions
+
+| Name | Contribution |
+|------|-------------|
+| **[Team Member 1]** | BDH model architecture (Cell 4), training loop, `run_inference()` |
+| **[Team Member 2]** | Feature engineering pipeline (Cell 3), NASA POWER data preprocessing |
+| **[Team Member 3]** | RAG layer (Cell 5), LLM prompting, `ask_analyst()` function |
+| **[Team Member 4]** | Streaming pipeline (Cell 6), JSON output, REST API (`api.py`) |
+| **[Team Member 5]** | Web demo, Streamlit/Gradio interface, deployment |
+
+> Update with actual names and split before submission.
+
+---
 
 
 ---

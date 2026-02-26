@@ -75,13 +75,16 @@ sse-renewables-platform/
 
 | Name | Contribution |
 |------|-------------|
-| **[Team Member 1]** | BDH model architecture (Cell 4), training loop, `run_inference()` |
-| **[Team Member 2]** | Feature engineering pipeline (Cell 3), NASA POWER data preprocessing |
-| **[Team Member 3]** | RAG layer (Cell 5), LLM prompting, `ask_analyst()` function |
-| **[Team Member 4]** | Streaming pipeline (Cell 6), JSON output, REST API (`api.py`) |
-| **[Team Member 5]** | Web demo, Streamlit/Gradio interface, deployment |
+| **[Eashita Karmakar]** | BDH model architecture (Cell 4), training loop, `run_inference()` |
+| **[Harshita Garg]** | BDH model architecture (Cell 4), training loop, `run_inference()` |
+| **[Manya]** | Feature engineering pipeline (Cell 3), NASA POWER data preprocessing |
+| **[Kaavya Tawade]** | RAG layer (Cell 5), LLM prompting, `ask_analyst()` function |
+| **[]** | Streaming pipeline (Cell 6), JSON output, REST API (`api.py`) |
+| **[]** | Web demo, Streamlit/Gradio interface, deployment |
+| **[]** | Streaming pipeline (Cell 6), JSON output, REST API (`api.py`) |
+| **[]** | Web demo, Streamlit/Gradio interface, deployment |
 
-> Update with actual names and split before submission.
+
 
 ---
 

@@ -1,0 +1,44 @@
+sse-platform/                          ← React Frontend
+├── src/
+│   ├── App.jsx                        ← Root component, page state + font imports
+│   ├── data/
+│   │   └── constants.js               ← All data (LIVE_DATA, MONTHLY_DATA, MOCK_RESPONSES)
+│   ├── components/
+│   │   ├── Navbar.jsx                 ← Fixed top nav with page routing
+│   │   ├── Gauge.jsx                  ← SVG arc gauge (memory norm visualiser)
+│   │   ├── Sparkline.jsx              ← SVG error trend line
+│   │   ├── RiskBadge.jsx              ← HIGH / MEDIUM / LOW pill badge
+│   │   └── MonthCard.jsx              ← Expandable monthly report card
+│   └── pages/
+│       ├── HomePage.jsx               ← Hero landing with grid/glow background
+│       ├── LivePage.jsx               ← BDH live stream, KPIs, feature table
+│       ├── AnalysisPage.jsx           ← Monthly grid with download button
+│       └── ChatPage.jsx               ← AI chat with sidebar + quick questions
+├── .env                               ← VITE_API_URL, VITE_API_KEY
+├── index.html
+├── vite.config.js
+├── tailwind.config.js
+└── package.json
+
+sse-backend/                           ← Node.js Backend
+├── src/
+│   ├── server.js                      ← Express entry point, middleware stack, startup
+│   ├── routes/
+│   │   ├── live.js                    ← GET /api/live, /stream, /history
+│   │   ├── monthly.js                 ← GET /api/monthly, /api/monthly/:year/:month
+│   │   └── chat.js                    ← POST /api/chat (mock → Claude ready)
+│   ├── services/
+│   │   └── bdhModel.js                ← BDH data logic (swap in real model here)
+│   ├── middleware/
+│   │   ├── auth.js                    ← Bearer token auth (env keys dev, DB prod)
+│   │   └── rateLimiter.js             ← 3-tier rate limiting per route
+│   ├── db/
+│   │   └── index.js                   ← PostgreSQL pool + auto schema init
+│   └── scripts/
+│       ├── generateKey.js             ← Creates + stores an API key
+│       └── testAuth.js                ← Smoke-tests all endpoints
+├── .env                               ← PORT, API_KEYS, DB_*, ALLOWED_ORIGIN
+├── .env.example                       ← Template to copy from
+├── .gitignore                         ← node_modules, .env, *.log
+├── package.json
+└── README.md                          ← Setup instructions

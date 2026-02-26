@@ -75,14 +75,14 @@ sse-renewables-platform/
 
 | Name | Contribution |
 |------|-------------|
-| **[Eashita Karmakar]** | BDH model architecture (Cell 4), training loop, `run_inference()` |
-| **[Harshita Garg]** | BDH model architecture (Cell 4), training loop, `run_inference()` |
-| **[Manya]** | Feature engineering pipeline (Cell 3), NASA POWER data preprocessing |
-| **[Kaavya Tawade]** | RAG layer (Cell 5), LLM prompting, `ask_analyst()` function |
-| **[]** | Streaming pipeline (Cell 6), JSON output, REST API (`api.py`) |
-| **[]** | Web demo, Streamlit/Gradio interface, deployment |
-| **[]** | Streaming pipeline (Cell 6), JSON output, REST API (`api.py`) |
-| **[]** | Web demo, Streamlit/Gradio interface, deployment |
+| **[Eashita Karmakar]** | Implemented BDH model architecture and core PyTorch components. |
+| **[Harshita Garg]** | Developed training loop, inference pipeline, and model evaluation. |
+| **[Manya]** | Built 84-feature climate preprocessing and feature engineering pipeline (NASA POWER data). |
+| **[Kaavya Tawade]** | Designed RAG system, LLM prompting logic, and implemented ask_analyst() integration. |
+| **[Anjali]** | Implemented streaming pipeline, monthly aggregation, JSON logging, and FastAPI backend (api.py). |
+| **[Chhavi]** | Web demo,deployment |
+| **[Sharvani]** |Provided technical mentorship on BDH architecture, climate-risk modeling, and overall system design. |
+| **[Sandhya]** | Supervised report preparation, presentation structure, and final system evaluation. |
 
 
 
